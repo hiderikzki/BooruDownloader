@@ -1,6 +1,5 @@
 package me.hideri.window;
 
-
 import me.hideri.util.ClientInfo;
 import me.hideri.util.ColorUtil;
 import net.kodehawa.lib.imageboards.DefaultImageBoards;
@@ -9,6 +8,10 @@ import net.kodehawa.lib.imageboards.entities.BoardImage;
 import net.kodehawa.lib.imageboards.entities.Rating;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.channels.ReadableByteChannel;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.List;
 
@@ -22,6 +25,8 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class DownloaderWindow
 {
@@ -30,6 +35,7 @@ public class DownloaderWindow
     private JCheckBox checkBoxAnimated;
     private JCheckBox checkBoxFilterImages;
     private JCheckBox checkBoxUseTag;
+    private JCheckBox checkBoxMultiThread;
 
     private JTextField textFieldTag;
     private JTextField textFieldImages;
@@ -63,6 +69,10 @@ public class DownloaderWindow
     private boolean allowAnimated = false;
     private boolean filterImages = true;
     private boolean useTag = true;
+    private boolean multithreaded = false;
+
+    private final ExecutorService DOWNLOAD_EXECUTOR = Executors.newFixedThreadPool(4);
+    private final ExecutorService SINGLE_DOWNLOAD_EXECUTOR = Executors.newFixedThreadPool(2);
 
     public DownloaderWindow()
     {
@@ -98,6 +108,7 @@ public class DownloaderWindow
         initAnimatedCheckBox();
         initFilterImagesCheckBox();
         initUseTagCheckBox();
+        initMultiThreadCheckBox();
 
         /* TextField Objects */
         initTagTextField();
@@ -258,6 +269,15 @@ public class DownloaderWindow
         checkBoxUseTag.setFocusPainted(false);
         downloaderWindow.add(checkBoxUseTag);
     }
+    private void initMultiThreadCheckBox()
+    {
+        checkBoxMultiThread = new JCheckBox("Multi-Thread", false);
+        checkBoxMultiThread.setBounds(5, 90, 115, 20);
+        checkBoxMultiThread.setBackground(ColorUtil.BACKGROUND);
+        checkBoxMultiThread.setForeground(ColorUtil.TEXT);
+        checkBoxMultiThread.setFocusPainted(false);
+        downloaderWindow.add(checkBoxMultiThread);
+    }
 
     private void initTagTextField()
     {
@@ -383,6 +403,15 @@ public class DownloaderWindow
                 textFieldTag.setFocusable(useTag);
             }
         });
+
+        checkBoxMultiThread.addActionListener(new ActionListener()
+        {
+            @Override
+            public void actionPerformed(ActionEvent e)
+            {
+                multithreaded = checkBoxUseTag.isSelected();
+            }
+        });
     }
 
     private void initButtonActionListeners()
@@ -496,7 +525,17 @@ public class DownloaderWindow
         }
     }
 
-    private void downloadImage(String fileName, String downloadUrl)
+    private void downloadImage(String fileName, String downloadUrl) throws IOException
+    {
+        URL url = new URL(downloadUrl);
+
+        try (ReadableByteChannel inputChannel = Channels.newChannel(url.openStream()); FileOutputStream fileOutputStream = new FileOutputStream(fileName); FileChannel outputChannel = fileOutputStream.getChannel();)
+        {
+            outputChannel.transferFrom(inputChannel, 0, Long.MAX_VALUE);
+        }
+    }
+
+    private void oldDownloadImage(String fileName, String downloadUrl)
     {
         try(InputStream in = new URL(downloadUrl).openStream())
         {
@@ -534,33 +573,87 @@ public class DownloaderWindow
             }
         }
 
-        for(int i = start; i < stop + 1; i++)
+        if(multithreaded)
         {
-            List<BoardImage> parsedImages = parseImages(board, rating, tag, images, i);
-
-            tempImages = parsedImages;
-
-            for(BoardImage image : parsedImages)
+            DOWNLOAD_EXECUTOR.execute(() ->
             {
-                tempImage = image;
-
-                if(!allowAnimated && (image.getTags().contains("animated") || image.getTags().contains("video")))
+                for(int i = start; i < stop + 1; i++)
                 {
-                    continue;
-                }
+                    List<BoardImage> parsedImages = parseImages(board, rating, tag, images, i);
 
-                if(filterImages && filterImage(image))
+                    tempImages = parsedImages;
+
+                    for(BoardImage image : parsedImages)
+                    {
+                        tempImage = image;
+
+                        if(!allowAnimated && (image.getTags().contains("animated") || image.getTags().contains("video")))
+                        {
+                            continue;
+                        }
+
+                        if(filterImages && filterImage(image))
+                        {
+                            continue;
+                        }
+
+                        System.out.println("Downloading image " + (tempImages.indexOf(tempImage) + 1) + "/" + tempImages.size() + " (" + tempImage.getURL() + ")");
+
+                        SINGLE_DOWNLOAD_EXECUTOR.execute(() ->
+                        {
+                            try
+                            {
+                                downloadImage(saveLocation.getAbsolutePath() + "\\" + tag + "-" + image.getURL().split("/")[image.getURL().split("/").length - 1], image.getURL());
+                            }
+                            catch (IOException e)
+                            {
+                                e.printStackTrace();
+                            }
+                        });
+                    }
+                }
+            });
+
+            System.out.println("[MultiThread ON] All download instances have started!");
+        }
+        else
+        {
+            for(int i = start; i < stop + 1; i++)
+            {
+                List<BoardImage> parsedImages = parseImages(board, rating, tag, images, i);
+
+                tempImages = parsedImages;
+
+                for(BoardImage image : parsedImages)
                 {
-                    continue;
+                    tempImage = image;
+
+                    if(!allowAnimated && (image.getTags().contains("animated") || image.getTags().contains("video")))
+                    {
+                        continue;
+                    }
+
+                    if(filterImages && filterImage(image))
+                    {
+                        continue;
+                    }
+
+                    System.out.println("Downloading image " + (tempImages.indexOf(tempImage) + 1) + "/" + tempImages.size() + " (" + tempImage.getURL() + ")");
+
+                    try
+                    {
+                        downloadImage(saveLocation.getAbsolutePath() + "\\" + tag + "-" + image.getURL().split("/")[image.getURL().split("/").length - 1], image.getURL());
+                    }
+                    catch (IOException e)
+                    {
+                        e.printStackTrace();
+                    }
                 }
-
-                System.out.println("Downloading image " + (tempImages.indexOf(tempImage) + 1) + "/" + tempImages.size() + " (" + tempImage.getURL() + ")");
-
-                downloadImage(saveLocation.getAbsolutePath() + "\\" + tag + "-" + image.getURL().split("/")[image.getURL().split("/").length - 1], image.getURL());
             }
+
+            System.out.println("[MultiThread OFF] Downloads Finished!");
         }
 
-        System.out.println("Downloads Finished!");
         startDownload.setVisible(true);
         startDownload.setEnabled(true);
         downloaderWindow.repaint(0, 0, width, height);
@@ -568,7 +661,7 @@ public class DownloaderWindow
 
     public boolean filterImage(BoardImage image)
     {
-        if(image.getTags().contains("loli") || image.getTags().contains("shota"))
+        if(image.getTags().contains("loli") || image.getTags().contains("shota") || image.isPending())
         {
             System.out.println("Filtered image " + image.getURL());
             return true;

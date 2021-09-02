@@ -9,7 +9,7 @@ public class Main
 
     public static void main(String[] args)
     {
-        ImageBoard.setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36");
+        ImageBoard.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36");
         downloaderWindow.initDownloaderWindow();
     }
 }

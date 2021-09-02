@@ -36,6 +36,8 @@ public class DownloaderWindow
     private JCheckBox checkBoxFilterImages;
     private JCheckBox checkBoxUseTag;
     private JCheckBox checkBoxMultiThread;
+    private JCheckBox checkBoxExtendedDebug;
+    private JCheckBox checkBoxUseOldDownload;
 
     private JTextField textFieldTag;
     private JTextField textFieldImages;
@@ -70,6 +72,8 @@ public class DownloaderWindow
     private boolean filterImages = true;
     private boolean useTag = true;
     private boolean multithreaded = false;
+    private boolean hasExtendedDebug = false;
+    private boolean usingOldDownload = false;
 
     private final ExecutorService DOWNLOAD_EXECUTOR = Executors.newFixedThreadPool(4);
     private final ExecutorService SINGLE_DOWNLOAD_EXECUTOR = Executors.newFixedThreadPool(2);
@@ -109,6 +113,7 @@ public class DownloaderWindow
         initFilterImagesCheckBox();
         initUseTagCheckBox();
         initMultiThreadCheckBox();
+        initExtendedDebugCheckBox();
 
         /* TextField Objects */
         initTagTextField();
@@ -269,6 +274,7 @@ public class DownloaderWindow
         checkBoxUseTag.setFocusPainted(false);
         downloaderWindow.add(checkBoxUseTag);
     }
+
     private void initMultiThreadCheckBox()
     {
         checkBoxMultiThread = new JCheckBox("Multi-Thread", false);
@@ -277,6 +283,25 @@ public class DownloaderWindow
         checkBoxMultiThread.setForeground(ColorUtil.TEXT);
         checkBoxMultiThread.setFocusPainted(false);
         downloaderWindow.add(checkBoxMultiThread);
+    }
+
+    private void initExtendedDebugCheckBox()
+    {
+        checkBoxExtendedDebug = new JCheckBox("Extended Debug", false);
+        checkBoxExtendedDebug.setBounds(5, 110, 125, 20);
+        checkBoxExtendedDebug.setBackground(ColorUtil.BACKGROUND);
+        checkBoxExtendedDebug.setForeground(ColorUtil.TEXT);
+        checkBoxExtendedDebug.setFocusPainted(false);
+        downloaderWindow.add(checkBoxExtendedDebug);
+    }
+    private void initUseOldDownloadCheckBox()
+    {
+        checkBoxUseOldDownload = new JCheckBox("Old Download", false);
+        checkBoxUseOldDownload.setBounds(5, 130, 125, 20);
+        checkBoxUseOldDownload.setBackground(ColorUtil.BACKGROUND);
+        checkBoxUseOldDownload.setForeground(ColorUtil.TEXT);
+        checkBoxUseOldDownload.setFocusPainted(false);
+        downloaderWindow.add(checkBoxUseOldDownload);
     }
 
     private void initTagTextField()
@@ -412,6 +437,24 @@ public class DownloaderWindow
                 multithreaded = checkBoxUseTag.isSelected();
             }
         });
+
+        checkBoxExtendedDebug.addActionListener(new ActionListener()
+        {
+            @Override
+            public void actionPerformed(ActionEvent e)
+            {
+                hasExtendedDebug = checkBoxExtendedDebug.isSelected();
+            }
+        });
+
+        checkBoxUseOldDownload.addActionListener(new ActionListener()
+        {
+            @Override
+            public void actionPerformed(ActionEvent e)
+            {
+                usingOldDownload = checkBoxUseOldDownload.isSelected();
+            }
+        });
     }
 
     private void initButtonActionListeners()
@@ -533,6 +576,10 @@ public class DownloaderWindow
         {
             outputChannel.transferFrom(inputChannel, 0, Long.MAX_VALUE);
         }
+        catch(FileAlreadyExistsException ex)
+        {
+            System.err.println("Image " + fileName.split("/")[fileName.split("/").length - 1] + " already exists, skipping!");
+        }
     }
 
     private void oldDownloadImage(String fileName, String downloadUrl)
@@ -556,7 +603,7 @@ public class DownloaderWindow
 
     private List<BoardImage> parseImages(ImageBoard<?> imageboard, Rating rating, String tag, int limit, int page)
     {
-        return (List<BoardImage>) imageboard.search(page, limit, tag, rating).blocking();
+        return (List<BoardImage>) imageboard.search(page, limit,  "rating:" + rating.getLongName().toLowerCase() + " " + tag, rating).blocking();
     }
 
     private void startDownloadWithParsedArguments(String tag, ImageBoard<?> board, Rating rating, int images, int start, int stop)
@@ -597,13 +644,27 @@ public class DownloaderWindow
                             continue;
                         }
 
-                        System.out.println("Downloading image " + (tempImages.indexOf(tempImage) + 1) + "/" + tempImages.size() + " (" + tempImage.getURL() + ")");
+                        if(hasExtendedDebug)
+                        {
+                            System.out.println("Downloading image " + (tempImages.indexOf(tempImage) + 1) + "/" + tempImages.size() + " (" + tempImage.getURL() + ")\nTags: " + image.getTags() + "\nSize: " + image.getWidth() + ", " + image.getHeight());
+                        }
+                        else
+                        {
+                            System.out.println("Downloading image " + (tempImages.indexOf(tempImage) + 1) + "/" + tempImages.size() + " (" + tempImage.getURL() + ")");
+                        }
 
                         SINGLE_DOWNLOAD_EXECUTOR.execute(() ->
                         {
                             try
                             {
-                                downloadImage(saveLocation.getAbsolutePath() + "\\" + tag + "-" + image.getURL().split("/")[image.getURL().split("/").length - 1], image.getURL());
+                                if(usingOldDownload)
+                                {
+                                    oldDownloadImage(saveLocation.getAbsolutePath() + "\\" + tag + "-" + image.getURL().split("/")[image.getURL().split("/").length - 1], image.getURL());
+                                }
+                                else
+                                {
+                                    downloadImage(saveLocation.getAbsolutePath() + "\\" + tag + "-" + image.getURL().split("/")[image.getURL().split("/").length - 1], image.getURL());
+                                }
                             }
                             catch (IOException e)
                             {
@@ -638,11 +699,25 @@ public class DownloaderWindow
                         continue;
                     }
 
-                    System.out.println("Downloading image " + (tempImages.indexOf(tempImage) + 1) + "/" + tempImages.size() + " (" + tempImage.getURL() + ")");
+                    if(hasExtendedDebug)
+                    {
+                        System.out.println("Downloading image " + (tempImages.indexOf(tempImage) + 1) + "/" + tempImages.size() + " (" + tempImage.getURL() + ")\nTags: " + image.getTags() + "\nSize: " + image.getWidth() + ", " + image.getHeight());
+                    }
+                    else
+                    {
+                        System.out.println("Downloading image " + (tempImages.indexOf(tempImage) + 1) + "/" + tempImages.size() + " (" + tempImage.getURL() + ")");
+                    }
 
                     try
                     {
-                        downloadImage(saveLocation.getAbsolutePath() + "\\" + tag + "-" + image.getURL().split("/")[image.getURL().split("/").length - 1], image.getURL());
+                        if(usingOldDownload)
+                        {
+                            oldDownloadImage(saveLocation.getAbsolutePath() + "\\" + tag + "-" + image.getURL().split("/")[image.getURL().split("/").length - 1], image.getURL());
+                        }
+                        else
+                        {
+                            downloadImage(saveLocation.getAbsolutePath() + "\\" + tag + "-" + image.getURL().split("/")[image.getURL().split("/").length - 1], image.getURL());
+                        }
                     }
                     catch (IOException e)
                     {

@@ -114,6 +114,7 @@ public class DownloaderWindow
         initUseTagCheckBox();
         initMultiThreadCheckBox();
         initExtendedDebugCheckBox();
+        initUseOldDownloadCheckBox();
 
         /* TextField Objects */
         initTagTextField();
